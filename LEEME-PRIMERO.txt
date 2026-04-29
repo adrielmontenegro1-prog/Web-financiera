@@ -1,0 +1,16 @@
+ESTA ES LA CARPETA QUE DEBES SUBIR
+
+Carpeta:
+SUBIR-WEBSITE-FINANZAS
+
+Archivo principal:
+index.html
+
+Instrucciones:
+1. Abre tu hosting.
+2. Sube TODO el contenido de esta carpeta.
+3. Asegurate de que index.html quede en la raiz/public_html del hosting.
+4. No necesitas npm, node_modules, React build ni instalar nada.
+
+La web guarda los datos en el navegador usando localStorage.
+No conecta a bancos reales.

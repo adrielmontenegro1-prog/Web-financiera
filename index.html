@@ -490,6 +490,7 @@
         </header>
 
         <section id="dashboard" class="view active"></section>
+        <section id="incomes" class="view"></section>
         <section id="movements" class="view"></section>
         <section id="calendar" class="view"></section>
         <section id="cards" class="view"></section>
@@ -527,7 +528,7 @@
       };
 
       const nav = [
-        ['dashboard', 'Dashboard', 'Home'], ['movements', 'Movimientos', 'ReceiptText'],
+        ['dashboard', 'Dashboard', 'Home'], ['incomes', 'Ingresos', 'CircleDollarSign'], ['movements', 'Movimientos', 'ReceiptText'],
         ['calendar', 'Calendario', 'CalendarDays'], ['cards', 'Tarjetas', 'CreditCard'],
         ['irs', 'IRS', 'Landmark'], ['budget', 'Presupuesto', 'Gauge'],
         ['reports', 'Reportes', 'FileText'], ['alerts', 'Alertas', 'Bell'], ['settings', 'Config', 'Settings']
@@ -546,6 +547,9 @@
       const baseData = {
         income: 12500,
         dark: false,
+        incomes: [
+          { id: 1, date: currentDate(1), description: 'Ingreso base ejemplo', amount: 1250, type: 'Trabajo', notes: 'Editable' }
+        ],
         expenses: [
           ['Alquiler / Hipoteca','Fijos',2330,'monthly',1,'pending',''],
           ['Servicios luz/agua/gas','Fijos',205,'monthly',7,'pending',''],
@@ -589,6 +593,7 @@
       };
 
       let data = JSON.parse(localStorage.getItem(storeKey) || 'null') || structuredClone(baseData);
+      if (!Array.isArray(data.incomes)) data.incomes = [];
       let active = 'dashboard';
 
       function save() {
@@ -597,6 +602,10 @@
         render();
       }
       function calc() {
+        const currentMonth = `${today.getFullYear()}-${pad(today.getMonth() + 1)}`;
+        const monthIncomes = data.incomes.filter(x => String(x.date || '').startsWith(currentMonth));
+        const incomeTotal = monthIncomes.reduce((s, x) => s + Number(x.amount || 0), 0);
+        const effectiveIncome = incomeTotal > 0 ? incomeTotal : Number(data.income || 0);
         const totals = {};
         data.expenses.forEach(x => totals[x.category] = (totals[x.category] || 0) + monthly(x.amount, x.frequency));
         const fixed = totals.Fijos || 0, subs = totals.Suscripciones || 0, variable = totals.Variables || 0, savings = totals.Ahorro || 0;
@@ -604,8 +613,8 @@
         const cardMin = data.cards.reduce((s, c) => s + Number(c.minimum || 0), 0);
         const cardRec = data.cards.reduce((s, c) => s + Number(c.recommended || 0), 0);
         const total = fixed + subs + variable + cardMin + Number(data.irs.monthly || 0);
-        const leftover = Number(data.income || 0) - total - savings;
-        const rate = data.income ? savings / data.income * 100 : 0;
+        const leftover = effectiveIncome - total - savings;
+        const rate = effectiveIncome ? savings / effectiveIncome * 100 : 0;
         const vehicle = data.expenses.filter(x => /carro|camioneta/i.test(x.name)).reduce((s, x) => s + monthly(x.amount, x.frequency), 0);
         const leaks = [
           { name: 'Vivienda y fijos', value: fixed }, { name: 'Vehiculo', value: vehicle }, { name: 'Suscripciones', value: subs },
@@ -613,7 +622,7 @@
         ].sort((a, b) => b.value - a.value);
         const next = [...data.expenses.map(x => ({ name: x.name, amount: monthly(x.amount, x.frequency), day: x.dueDay })), ...data.cards.map(c => ({ name: c.name, amount: c.minimum, day: c.dueDay }))]
           .filter(x => dayDiff(x.day) >= 0).sort((a, b) => dayDiff(a.day) - dayDiff(b.day))[0];
-        return { totals, fixed, subs, variable, savings, cardDebt, cardMin, cardRec, total, leftover, rate, vehicle, leak: leaks[0], next };
+        return { totals, fixed, subs, variable, savings, cardDebt, cardMin, cardRec, total, leftover, rate, vehicle, leak: leaks[0], next, incomeTotal, effectiveIncome, monthIncomes };
       }
       function alerts(m) {
         const out = [];
@@ -627,24 +636,24 @@
         const irsD = dayDiff(data.irs.dueDay);
         if (data.irs.monthly > 0 && irsD <= 7 && irsD >= 0) out.push(['yellow', 'IRS vence pronto', `Vence en ${irsD} dias.`, 'IRS']);
         if (data.irs.monthly > 0 && irsD < 0) out.push(['red', 'IRS vencido', `Vencio hace ${Math.abs(irsD)} dias.`, 'IRS']);
-        if (m.cardDebt > data.income * 0.3) out.push(['red', 'Deuda alta vs ingreso', 'Tarjetas superan 30% del ingreso mensual.', 'Deudas']);
-        if (m.savings < data.income * 0.1) out.push(['yellow', 'Ahorro bajo', 'Tu ahorro esta por debajo del 10%.', 'Ahorro']);
+        if (m.cardDebt > m.effectiveIncome * 0.3) out.push(['red', 'Deuda alta vs ingreso', 'Tarjetas superan 30% del ingreso mensual.', 'Deudas']);
+        if (m.savings < m.effectiveIncome * 0.1) out.push(['yellow', 'Ahorro bajo', 'Tu ahorro esta por debajo del 10%.', 'Ahorro']);
         if (m.leftover > 0) out.push(['green', 'Sobrante disponible', `Puedes asignar ${usd(m.leftover)} entre ahorro, deuda e inversion.`, 'Flujo']);
         return out.length ? out : [['green', 'Todo tranquilo', 'No hay alertas criticas con los datos actuales.', 'Sistema']];
       }
       function insights(m) {
         const lines = [`Tu mayor gasto es ${m.leak.name.toLowerCase()} con ${usd(m.leak.value)} al mes.`, `Tus suscripciones suman ${usd(m.subs)} al mes, ${usd(m.subs * 12)} al ano.`];
-        if (m.vehicle > data.income * 0.2) lines.push('Tu vehiculo representa un gasto alto frente al ingreso.');
+        if (m.vehicle > m.effectiveIncome * 0.2) lines.push('Tu vehiculo representa un gasto alto frente al ingreso.');
         if (m.savings <= 0) lines.push('No tienes ahorro registrado.');
-        if (m.cardDebt > data.income * 0.3) lines.push('Tus deudas estan pesando mucho.');
+        if (m.cardDebt > m.effectiveIncome * 0.3) lines.push('Tus deudas estan pesando mucho.');
         if (m.leftover < 0) lines.push('Estas gastando mas de lo que entra.');
         if (m.rate < 10) lines.push('Tu ahorro esta por debajo del 10%.');
         const tips = [];
         if (m.rate < 10) tips.push('Separa ahorro apenas entra el ingreso.');
-        if (m.cardDebt > data.income * 0.3) tips.push('Activa un plan de pago agresivo para tarjetas.');
+        if (m.cardDebt > m.effectiveIncome * 0.3) tips.push('Activa un plan de pago agresivo para tarjetas.');
         if (m.subs > 150) tips.push('Cancela o pausa 1 o 2 servicios.');
-        if (m.vehicle > data.income * 0.2) tips.push('Revisa refinanciamiento, seguro o cambio del vehiculo.');
-        if (m.variable > data.income * 0.2) tips.push('Pon un limite semanal para gastos variables.');
+        if (m.vehicle > m.effectiveIncome * 0.2) tips.push('Revisa refinanciamiento, seguro o cambio del vehiculo.');
+        if (m.variable > m.effectiveIncome * 0.2) tips.push('Pon un limite semanal para gastos variables.');
         if (m.leftover > 0) tips.push('Divide el sobrante entre ahorro, deuda e inversion.');
         return { lines, tips };
       }
@@ -693,6 +702,8 @@
       }
       function deleteExpense(id) { data.expenses = data.expenses.filter(x => x.id !== id); save(); toast('Movimiento eliminado'); }
       function addExpense() { data.expenses.push({ id: Date.now(), name: 'Nuevo gasto', category: 'Variables', amount: 0, frequency: 'monthly', dueDay: 1, status: 'pending', notes: '' }); save(); }
+      function addIncome() { data.incomes.unshift({ id: Date.now(), date: new Date().toISOString().slice(0,10), description: 'Nuevo ingreso', amount: 0, type: 'Trabajo', notes: '' }); save(); }
+      function deleteIncome(id) { data.incomes = data.incomes.filter(x => x.id !== id); save(); toast('Ingreso eliminado'); }
       function addEvent() { data.events.push({ id: Date.now(), name: 'Nuevo pago', amount: 0, date: currentDate(today.getDate()), category: 'Otros', status: 'pending', repeat: 'monthly', notes: '' }); save(); }
       function deleteEvent(id) { data.events = data.events.filter(x => x.id !== id); save(); toast('Evento eliminado'); }
 
@@ -714,8 +725,9 @@
             <div class="hero-card">
               <span>Ingreso editable</span>
               <input class="input" type="number" value="${data.income}" onchange="data.income=Number(this.value||0);save()" style="margin-top:12px;background:rgba(255,255,255,.22);color:inherit;font-size:28px;">
-              <strong>${usd(data.income)}</strong>
-              <p style="margin-top:14px;font-weight:800;opacity:.84">Proximo pago: ${m.next ? `${m.next.name} - ${usd(m.next.amount)}` : 'Sin pagos'}</p>
+              <strong>${usd(m.effectiveIncome)}</strong>
+              <p style="margin-top:10px;font-weight:800;opacity:.84">${m.incomeTotal > 0 ? `Sumado por entradas del mes: ${m.monthIncomes.length}` : 'Usando ingreso estimado mensual'}</p>
+              <p style="margin-top:8px;font-weight:800;opacity:.84">Proximo pago: ${m.next ? `${m.next.name} - ${usd(m.next.amount)}` : 'Sin pagos'}</p>
             </div>
           </div>
           <div class="grid grid-4 section-space">
@@ -730,7 +742,7 @@
           </div>
           <div class="grid grid-2 section-space">
             ${donutPanel(m)}
-            ${barPanel('Ingresos vs gastos', [{n:'Ingreso',v:data.income},{n:'Gastos',v:m.total},{n:'Ahorro',v:m.savings},{n:'Libre',v:m.leftover}], 'blue')}
+            ${barPanel('Ingresos vs gastos', [{n:'Ingreso',v:m.effectiveIncome},{n:'Gastos',v:m.total},{n:'Ahorro',v:m.savings},{n:'Libre',v:m.leftover}], 'blue')}
           </div>
           <div class="grid grid-2 section-space">
             <div class="panel"><h3>Centro de Alertas</h3><div style="margin-top:14px">${a.slice(0,4).map(alertHtml).join('')}</div></div>
@@ -759,6 +771,26 @@
       function barPanel(title, rows, tone = 'blue') {
         const max = Math.max(...rows.map(x => Math.abs(x.v)), 1);
         return `<div class="panel"><h3>${title}</h3><div class="bars">${rows.map(x => `<div class="bar-row"><span>${esc(x.n)}</span><div class="track"><div class="fill" style="width:${Math.min(100, Math.abs(x.v) / max * 100)}%;background:var(--${tone})"></div></div><strong>${usd(x.v)}</strong></div>`).join('')}</div></div>`;
+      }
+
+      function renderIncomes(m) {
+        const byType = {};
+        data.incomes.forEach(x => byType[x.type || 'Otro'] = (byType[x.type || 'Otro'] || 0) + Number(x.amount || 0));
+        incomes.innerHTML = pageTitle('Ingresos variables', 'Registra cada entrada de dinero diaria o variable. El dashboard suma automaticamente los ingresos del mes actual.') +
+          `<div class="grid grid-4 section-space">
+            ${stat('Ingreso del mes', usd(m.effectiveIncome), 'CircleDollarSign', 'green')}
+            ${stat('Entradas este mes', String(m.monthIncomes.length), 'ReceiptText', 'blue')}
+            ${stat('Ingreso estimado', usd(data.income), 'WalletCards', 'blue')}
+            ${stat('Promedio por entrada', usd(m.monthIncomes.length ? m.incomeTotal / m.monthIncomes.length : 0), 'Gauge', 'yellow')}
+          </div>
+          <div class="grid grid-2 section-space">
+            ${barPanel('Ingresos por tipo', Object.entries(byType).map(([n,v]) => ({ n, v })), 'green')}
+            <div class="panel"><h3>Agregar ingresos</h3><p class="muted small" style="margin-top:8px">Cada vez que te entre dinero, crea una linea nueva. Puede ser trabajo, cash, transferencia, negocio, bono u otro.</p><button class="btn primary section-space" onclick="addIncome()">${icons.Plus} Nuevo ingreso</button></div>
+          </div>
+          <div class="panel section-space"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><h3>Historial de ingresos</h3><button class="btn primary" onclick="addIncome()">${icons.Plus} Agregar</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Descripcion</th><th>Monto</th><th>Tipo</th><th>Notas</th><th></th></tr></thead><tbody>
+          ${data.incomes.map((x,i) => `<tr><td><input class="input" type="date" value="${esc(x.date)}" onchange="setPath('incomes.${i}.date', this.value)"></td><td>${textInput(`incomes.${i}.description`, x.description)}</td><td>${numInput(`incomes.${i}.amount`, x.amount)}</td><td>${textInput(`incomes.${i}.type`, x.type)}</td><td>${textInput(`incomes.${i}.notes`, x.notes)}</td><td><button class="btn danger" onclick="deleteIncome(${x.id})">${icons.Trash2}</button></td></tr>`).join('')}
+          </tbody></table></div></div>`;
       }
 
       function renderMovements() {
@@ -822,7 +854,7 @@
 
       function renderReports(m) {
         reports.innerHTML = pageTitle('Reportes', 'Graficos, historico mensual, exportacion CSV y reporte financiero.') +
-          `<div class="grid grid-2 section-space">${barPanel('Flujo de dinero', [{n:'Ingreso',v:data.income},{n:'Fijos',v:m.fixed},{n:'Variables',v:m.variable},{n:'Deudas',v:m.cardMin+data.irs.monthly},{n:'Ahorro',v:m.savings},{n:'Libre',v:m.leftover}], 'blue')}${barPanel('Deuda por tarjeta', data.cards.map(c=>({n:c.name,v:c.balance})), 'red')}${barPanel('Suscripciones', data.expenses.filter(x=>x.category==='Suscripciones').map(x=>({n:x.name,v:x.amount})), 'blue')}${barPanel('Balance historico', data.history.map(h=>({n:h.month,v:h.leftover})), 'green')}</div>
+          `<div class="grid grid-2 section-space">${barPanel('Flujo de dinero', [{n:'Ingreso',v:m.effectiveIncome},{n:'Fijos',v:m.fixed},{n:'Variables',v:m.variable},{n:'Deudas',v:m.cardMin+data.irs.monthly},{n:'Ahorro',v:m.savings},{n:'Libre',v:m.leftover}], 'blue')}${barPanel('Deuda por tarjeta', data.cards.map(c=>({n:c.name,v:c.balance})), 'red')}${barPanel('Suscripciones', data.expenses.filter(x=>x.category==='Suscripciones').map(x=>({n:x.name,v:x.amount})), 'blue')}${barPanel('Balance historico', data.history.map(h=>({n:h.month,v:h.leftover})), 'green')}</div>
           <div class="panel section-space"><div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn primary" onclick="exportMovements()">${icons.Download} Exportar movimientos CSV</button><button class="btn primary" onclick="exportSummary()">${icons.Download} Exportar resumen CSV</button><button class="btn" onclick="downloadReport()">${icons.FileText} Descargar reporte</button><button class="btn ghost" onclick="saveMonth()">${icons.CheckCircle2} Guardar mes</button></div>
           <div class="table-wrap section-space"><table><thead><tr><th>Mes</th><th>Ingreso</th><th>Gastos</th><th>Ahorro</th><th>Sobrante</th><th>Deuda pagada</th><th>Mayor fuga</th><th>Nota</th></tr></thead><tbody>${data.history.map(h=>`<tr><td><strong>${h.month}</strong></td><td>${usd(h.income)}</td><td>${usd(h.expenses)}</td><td>${usd(h.savings)}</td><td>${usd(h.leftover)}</td><td>${usd(h.debtPaid)}</td><td>${esc(h.leak)}</td><td>${esc(h.note)}</td></tr>`).join('')}</tbody></table></div></div>`;
       }
@@ -847,15 +879,15 @@
       }
       function exportSummary() {
         const m = calc();
-        download('resumen-mensual.csv', csv([['Metrica','Valor'],['Ingreso',data.income],['Gastos',m.total],['Ahorro',m.savings],['Sobrante',m.leftover],['Deuda tarjetas',m.cardDebt],['IRS mensual',data.irs.monthly]]));
+        download('resumen-mensual.csv', csv([['Metrica','Valor'],['Ingreso del mes',m.effectiveIncome],['Ingreso estimado',data.income],['Entradas registradas',m.monthIncomes.length],['Gastos',m.total],['Ahorro',m.savings],['Sobrante',m.leftover],['Deuda tarjetas',m.cardDebt],['IRS mensual',data.irs.monthly]]));
       }
       function downloadReport() {
         const m = calc(), ins = insights(m);
-        download('reporte-financiero.txt', `Reporte financiero mensual\nIngreso: ${usd(data.income)}\nGastos: ${usd(m.total)}\nAhorro: ${usd(m.savings)}\nSobrante: ${usd(m.leftover)}\nMayor fuga: ${m.leak.name}\n\nConsejos:\n${ins.tips.map(x=>'- '+x).join('\n')}`, 'text/plain');
+        download('reporte-financiero.txt', `Reporte financiero mensual\nIngreso del mes: ${usd(m.effectiveIncome)}\nEntradas registradas: ${m.monthIncomes.length}\nGastos: ${usd(m.total)}\nAhorro: ${usd(m.savings)}\nSobrante: ${usd(m.leftover)}\nMayor fuga: ${m.leak.name}\n\nConsejos:\n${ins.tips.map(x=>'- '+x).join('\n')}`, 'text/plain');
       }
       function saveMonth() {
         const m = calc(), month = new Date().toISOString().slice(0,7);
-        data.history = [{ month, income: data.income, expenses: m.total, savings: m.savings, leftover: m.leftover, debtPaid: m.cardRec + data.irs.monthly, leak: m.leak.name, note: 'Guardado desde reportes' }, ...data.history.filter(x=>x.month!==month)];
+        data.history = [{ month, income: m.effectiveIncome, expenses: m.total, savings: m.savings, leftover: m.leftover, debtPaid: m.cardRec + data.irs.monthly, leak: m.leak.name, note: `Guardado con ${m.monthIncomes.length} ingresos` }, ...data.history.filter(x=>x.month!==month)];
         save(); toast('Mes guardado en historico');
       }
 
@@ -864,7 +896,7 @@
         document.body.classList.toggle('dark', data.dark);
         leftoverPill.textContent = `${usd(m.leftover)} libre`;
         alertsPill.textContent = `${a.length} alertas`;
-        renderNav(); renderDashboard(m,a,ins); renderMovements(); renderCalendar(); renderCards(m); renderIrs(m); renderBudget(); renderReports(m); renderAlerts(a,ins); renderSettings(); renderIcons(); go(active);
+        renderNav(); renderDashboard(m,a,ins); renderIncomes(m); renderMovements(); renderCalendar(); renderCards(m); renderIrs(m); renderBudget(); renderReports(m); renderAlerts(a,ins); renderSettings(); renderIcons(); go(active);
       }
       themeBtn.onclick = () => { data.dark = !data.dark; save(); };
       resetBtn.onclick = () => { if (confirm('Reiniciar datos de ejemplo?')) { data = structuredClone(baseData); save(); } };
