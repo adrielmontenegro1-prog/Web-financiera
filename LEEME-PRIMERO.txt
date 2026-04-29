@@ -1,0 +1,26 @@
+ESTA ES LA VERSION ANTERIOR SIN GUARDADO ONLINE
+
+Carpeta para subir:
+SUBIR-WEBSITE-FINANZAS-LOCAL
+
+Archivo principal:
+index.html
+
+Incluye:
+- Dashboard financiero
+- Ingresos variables diarios
+- Gastos mensuales y recurrentes
+- Tarjetas de credito
+- IRS
+- Calendario
+- Presupuesto
+- Reportes
+- Alertas
+- Modo oscuro
+
+Guardado:
+Los cambios se guardan en el navegador usando localStorage.
+No usa Supabase, API, base de datos ni guardado online.
+
+Para Vercel/GitHub:
+Sube este index.html a tu repositorio.
